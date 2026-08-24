@@ -1,0 +1,21 @@
+# CMake 和本地构建目录
+/build/
+/build-*/
+/code/build/
+/code/build-*/
+
+# 编译产物
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.exe
+*.pdb
+
+# 编辑器和系统文件
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
