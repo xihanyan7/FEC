@@ -7,7 +7,7 @@
 namespace fec {
 namespace internal {
 
-/* XOR 算法本身无状态，调用方负责按交织列选择累加器。 */
+/* XOR 编解码不持有上下文；交织列映射和缓冲区生命周期由编解码器管理。 */
 class XorCodec {
 public:
     static void accumulate(uint8_t *destination,
