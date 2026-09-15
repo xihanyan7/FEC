@@ -17,6 +17,8 @@ typedef enum fec_profile {
     FEC_PROFILE_XOR_I_D4_L8 = 5,
     FEC_PROFILE_RS_8_6 = 6,
     FEC_PROFILE_RS_10_8 = 7,
+    /* 连续 X 个源包生成 1 个 XOR repair，X 由 fec_config.xor_group_size 指定。 */
+    FEC_PROFILE_XOR_DX = 8,
     /* AUTO 仅供解码器使用，编码器必须选择具体 profile。 */
     FEC_PROFILE_AUTO = 255
 } fec_profile_t;
@@ -24,7 +26,8 @@ typedef enum fec_profile {
 typedef enum fec_algorithm {
     FEC_ALGORITHM_NONE = 0,
     FEC_ALGORITHM_XOR_INTERLEAVED = 1,
-    FEC_ALGORITHM_REED_SOLOMON = 2
+    FEC_ALGORITHM_REED_SOLOMON = 2,
+    FEC_ALGORITHM_XOR = 3
 } fec_algorithm_t;
 
 typedef enum fec_status {
@@ -52,6 +55,8 @@ typedef struct fec_profile_info {
     uint8_t total_count;
     uint8_t interleave_rows;
     uint8_t interleave_columns;
+    /* 仅 XOR_DX 有效；表示每个 repair 保护的连续源包数量。 */
+    uint8_t xor_group_size;
     uint32_t redundancy_ppm;
 } fec_profile_info_t;
 
@@ -62,6 +67,8 @@ typedef struct fec_config {
     /* 逻辑保护符号大小；0 表示 max_packet_size + 6。 */
     uint16_t symbol_size;
     uint16_t max_packet_size;
+    /* XOR_DX 的 X，合法范围 1..32；其他 profile 忽略此字段。 */
+    uint8_t xor_group_size;
     /* 解码器活动块上限；0 表示 4。 */
     uint8_t max_active_blocks;
     /* 从块首帧开始计算；0 表示不自动过期。 */
@@ -177,6 +184,9 @@ int fec_controller_update(fec_controller_t *controller,
 fec_profile_t fec_controller_get_profile(const fec_controller_t *controller);
 
 int fec_profile_get_info(fec_profile_t profile, fec_profile_info_t *out_info);
+/* 动态 profile 应使用本接口，以便把配置中的 X 解析为完整参数。 */
+int fec_config_get_profile_info(const fec_config_t *config,
+                                fec_profile_info_t *out_info);
 const char *fec_profile_name(fec_profile_t profile);
 size_t fec_frame_header_size(void);
 

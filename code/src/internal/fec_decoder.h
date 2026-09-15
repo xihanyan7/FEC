@@ -10,6 +10,8 @@
 namespace fec {
 namespace internal {
 
+struct ProfileParams;
+
 class Decoder {
 public:
     Decoder();
@@ -34,12 +36,14 @@ private:
     void remember_retired(const Slot &slot);
     int retired_state(uint32_t block_id,
                       uint32_t base_seq,
-                      fec_profile_t profile) const;
+                      fec_profile_t profile,
+                      uint8_t xor_group_size) const;
     int record_error(int status);
     Slot *find_slot(uint32_t block_id);
     Slot *create_slot(uint32_t block_id,
                       uint32_t base_seq,
                       fec_profile_t profile,
+                      const ProfileParams &params,
                       uint32_t now_ms);
     bool receive_source(Slot &slot,
                         uint8_t *memory,

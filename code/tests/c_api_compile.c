@@ -36,7 +36,12 @@ int main(void) {
     if (fec_link_metrics_from_stats(7u, &stats, &metrics) != FEC_OK) return 7;
     if (fec_profile_get_info(FEC_PROFILE_XOR_I_D4_L4, &info) != FEC_OK) return 8;
     if (info.source_count != 16u || info.repair_count != 4u) return 9;
+    c.profile = FEC_PROFILE_XOR_DX;
+    c.xor_group_size = 4u;
+    if (fec_config_get_profile_info(&c, &info) != FEC_OK) return 10;
+    if (info.algorithm != FEC_ALGORITHM_XOR ||
+        info.xor_group_size != 4u || info.total_count != 5u) return 11;
     fec_encoder_destroy(e);
     fec_decoder_destroy(d);
-    return fec_frame_header_size() == 32u ? 0 : 10;
+    return fec_frame_header_size() == 32u ? 0 : 12;
 }

@@ -150,8 +150,10 @@ DecodeResult decode_frames(fec_profile_t decoder_profile,
                            const Wire &wire,
                            const std::set<size_t> &drop_positions,
                            bool repair_first,
-                           bool duplicate_first) {
+                           bool duplicate_first,
+                           uint8_t xor_group_size = 0u) {
     fec_config_t config = make_config(decoder_profile);
+    config.xor_group_size = xor_group_size;
     Received received;
     fec_decoder_t *decoder = NULL;
     assert(fec_decoder_create(&config,
@@ -221,6 +223,86 @@ void test_profile_metadata() {
     assert(info.algorithm == FEC_ALGORITHM_REED_SOLOMON);
     assert(info.source_count == 8u && info.repair_count == 2u);
     assert(fec_profile_get_info(FEC_PROFILE_AUTO, &info) == FEC_ERR_PROFILE);
+    assert(fec_profile_get_info(FEC_PROFILE_XOR_DX, &info) == FEC_ERR_PROFILE);
+
+    fec_config_t config = make_config(FEC_PROFILE_XOR_DX);
+    config.xor_group_size = 7u;
+    assert(fec_config_get_profile_info(&config, &info) == FEC_OK);
+    assert(info.algorithm == FEC_ALGORITHM_XOR);
+    assert(info.source_count == 7u && info.repair_count == 1u);
+    assert(info.total_count == 8u && info.xor_group_size == 7u);
+    assert(info.redundancy_ppm == 142857u);
+}
+
+Wire encode_one_dx_block(uint8_t xor_group_size,
+                         std::vector<Bytes> &packets) {
+    fec_config_t config = make_config(FEC_PROFILE_XOR_DX);
+    config.xor_group_size = xor_group_size;
+    fec_profile_info_t info;
+    assert(fec_config_get_profile_info(&config, &info) == FEC_OK);
+    packets = make_packets(info.source_count);
+
+    Wire wire;
+    fec_encoder_t *encoder = NULL;
+    assert(fec_encoder_create(&config, frame_callback, &wire, &encoder) == FEC_OK);
+    for (size_t i = 0u; i < packets.size(); ++i) {
+        const uint8_t *data = packets[i].empty() ? NULL : &packets[i][0];
+        assert(fec_encoder_push(encoder, data, packets[i].size()) == FEC_OK);
+    }
+    fec_encoder_destroy(encoder);
+    assert(wire.frames.size() == static_cast<size_t>(xor_group_size) + 1u);
+    for (size_t i = 0u; i < wire.frames.size(); ++i) {
+        assert(wire.frames[i][3] == FEC_PROFILE_XOR_DX);
+        assert(wire.frames[i][5] == xor_group_size);
+        assert(read_u16(wire.frames[i], 22u) == i);
+    }
+    return wire;
+}
+
+void test_plain_xor_dx() {
+    const uint8_t sizes[] = {1u, 2u, 4u, 7u, 16u, 32u};
+    for (size_t s = 0u; s < sizeof(sizes) / sizeof(sizes[0]); ++s) {
+        const uint8_t x = sizes[s];
+        std::vector<Bytes> packets;
+        const Wire wire = encode_one_dx_block(x, packets);
+
+        assert_packets_equal(
+            packets,
+            decode_frames(FEC_PROFILE_XOR_DX, wire, std::set<size_t>(),
+                          false, true, x).received);
+        for (size_t lost = 0u; lost < wire.frames.size(); ++lost) {
+            const DecodeResult result = decode_frames(
+                FEC_PROFILE_AUTO, wire, std::set<size_t>{lost}, false, false);
+            assert_packets_equal(packets, result.received);
+        }
+    }
+
+    std::vector<Bytes> packets;
+    const Wire wire = encode_one_dx_block(4u, packets);
+    const DecodeResult failed = decode_frames(
+        FEC_PROFILE_XOR_DX, wire, std::set<size_t>{0u, 1u}, false, false, 4u);
+    assert(failed.received.packets.size() == 2u);
+    assert(failed.stats.raw_missing_packets == 2u);
+    assert(failed.stats.unrecoverable_packets == 2u);
+
+    fec_config_t mismatched = make_config(FEC_PROFILE_XOR_DX);
+    mismatched.xor_group_size = 5u;
+    Received mismatched_received;
+    fec_decoder_t *mismatched_decoder = NULL;
+    assert(fec_decoder_create(&mismatched, packet_callback, event_callback,
+                              &mismatched_received, &mismatched_decoder) == FEC_OK);
+    assert(fec_decoder_ingest(mismatched_decoder, &wire.frames[0][0],
+                              wire.frames[0].size(), 1u) == FEC_ERR_PROFILE);
+    fec_decoder_destroy(mismatched_decoder);
+
+    fec_config_t invalid = make_config(FEC_PROFILE_XOR_DX);
+    fec_encoder_t *encoder = NULL;
+    invalid.xor_group_size = 0u;
+    assert(fec_encoder_create(&invalid, frame_callback, NULL, &encoder) ==
+           FEC_ERR_PROFILE);
+    invalid.xor_group_size = 33u;
+    assert(fec_encoder_create(&invalid, frame_callback, NULL, &encoder) ==
+           FEC_ERR_PROFILE);
 }
 
 void test_crc_standard_vector() {
@@ -570,6 +652,7 @@ void test_controller() {
 
 int main() {
     test_profile_metadata();
+    test_plain_xor_dx();
     test_crc_standard_vector();
     test_all_profiles_single_erasure();
     test_xor_bursts_and_same_column_failure();

@@ -5,7 +5,9 @@
 namespace fec {
 namespace internal {
 
-bool get_profile_params(fec_profile_t profile, ProfileParams &out) {
+bool get_profile_params(fec_profile_t profile,
+                        uint8_t xor_group_size,
+                        ProfileParams &out) {
     std::memset(&out, 0, sizeof(out));
     switch (profile) {
     case FEC_PROFILE_NONE:
@@ -45,6 +47,18 @@ bool get_profile_params(fec_profile_t profile, ProfileParams &out) {
         out.repair_count = 2u;
         out.algorithm = FEC_ALGORITHM_REED_SOLOMON;
         return true;
+    case FEC_PROFILE_XOR_DX:
+        if (xor_group_size == 0u || xor_group_size > 32u) {
+            return false;
+        }
+        /* 内部复用单列 XOR 状态机；L=1 时不存在实际交织。 */
+        out.interleave_rows = xor_group_size;
+        out.interleave_columns = 1u;
+        out.source_count = xor_group_size;
+        out.repair_count = 1u;
+        out.total_count = static_cast<uint8_t>(xor_group_size + 1u);
+        out.algorithm = FEC_ALGORITHM_XOR;
+        return true;
     default:
         return false;
     }
@@ -56,6 +70,15 @@ bool get_profile_params(fec_profile_t profile, ProfileParams &out) {
         out.source_count + out.repair_count);
     out.algorithm = FEC_ALGORITHM_XOR_INTERLEAVED;
     return true;
+}
+
+bool get_profile_params(fec_profile_t profile, ProfileParams &out) {
+    return get_profile_params(profile, 0u, out);
+}
+
+bool is_xor_algorithm(fec_algorithm_t algorithm) {
+    return algorithm == FEC_ALGORITHM_XOR_INTERLEAVED ||
+           algorithm == FEC_ALGORITHM_XOR;
 }
 
 uint32_t profile_redundancy_ppm(const ProfileParams &params) {
@@ -76,6 +99,7 @@ const char *profile_name(fec_profile_t profile) {
     case FEC_PROFILE_XOR_I_D4_L8: return "XOR_I_D4_L8";
     case FEC_PROFILE_RS_8_6: return "RS_8_6";
     case FEC_PROFILE_RS_10_8: return "RS_10_8";
+    case FEC_PROFILE_XOR_DX: return "XOR_DX";
     case FEC_PROFILE_AUTO: return "AUTO";
     default: return "UNKNOWN";
     }

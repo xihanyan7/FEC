@@ -5,6 +5,7 @@
 当前实现包括：
 
 - `NONE` 透传 profile；
+- 普通 XOR_DX：连续 X 个源包生成 1 个 repair，X 可配置为 1..32；
 - 一维 XOR 交织：D8/L4、D5/L4、D4/L4、D3/L4、D4/L8；
 - 系统型 RS(8,6) 和 RS(10,8)，GF(2^8) 使用 RFC 5510 的 `0x11d` 多项式和系统型 Vandermonde 生成矩阵；
 - 乱序、重复包、repair-first、活动块上限、超时和迟到包抑制；
@@ -68,6 +69,22 @@ fec_encoder_push(encoder, dsp_packet, dsp_packet_size);
 fec_encoder_destroy(encoder);
 ```
 
+普通 XOR_DX 示例：
+
+```c
+memset(&config, 0, sizeof(config));
+config.profile = FEC_PROFILE_XOR_DX;
+config.xor_group_size = 4; /* 连续4个源包生成1个repair。 */
+config.max_packet_size = 256;
+
+fec_encoder_create(&config, on_frame, user, &encoder);
+```
+
+编码顺序为 `S0,S1,S2,S3,P0`，其中
+`P0=S0 XOR S1 XOR S2 XOR S3`。X 的合法范围是 1..32，冗余率为
+`1/X`。`fec_profile_get_info` 只适用于参数固定的 profile；XOR_DX 应调用
+`fec_config_get_profile_info` 查询完整参数。
+
 接收端基本流程：
 
 ```c
@@ -79,7 +96,7 @@ fec_decoder_flush(decoder); /* 流结束时关闭仍在等待的块 */
 fec_decoder_destroy(decoder);
 ```
 
-编码器每次 `fec_encoder_push` 同步输出一个 SOURCE 帧；源块完成时还会连续输出多个 REPAIR 帧。因此一次 push 最多触发 `1 + L` 次 frame callback。回调不支持背压，回调返回前必须完成发送或复制。
+编码器每次 `fec_encoder_push` 同步输出一个 SOURCE 帧；源块完成时还会连续输出 REPAIR 帧。因此一次 push 最多触发 `1 + repair_count` 次 frame callback。回调不支持背压，回调返回前必须完成发送或复制。
 
 正常 SOURCE 数据会由解码器立即回调；恢复包可能稍后回调。回调携带 `source_seq`，严格按序交付由 DSP 或独立重排层负责。
 
@@ -93,6 +110,10 @@ fec_decoder_destroy(decoder);
 - 当前块全部修复帧输出后，下一块才启用新 profile；
 - 每个 FEC 帧都携带 profile；
 - 自适应接收端应配置 `FEC_PROFILE_AUTO`，允许旧块和新块同时处于活动状态。
+
+XOR_DX 的 X 来自创建编码器时的 `xor_group_size`，并写入每个帧的头部；
+AUTO 解码器可以直接按帧中携带的 X 解码。当前自适应控制器不会主动选择
+XOR_DX，但编码器可以在已经配置有效 X 的前提下请求切入该 profile。
 
 动态控制流程：
 
@@ -119,7 +140,7 @@ fec_decoder_destroy(decoder);
 | 2 | 1 | version |
 | 3 | 1 | profile |
 | 4 | 1 | frame type |
-| 5 | 1 | reserved |
+| 5 | 1 | XOR_DX group size X；其他 profile 为 0 |
 | 6 | 4 | stream id |
 | 10 | 4 | session epoch |
 | 14 | 4 | block id |
@@ -171,6 +192,6 @@ XOR 按 32 位自然字长处理，CRC32 使用 16 项半字节查表，RS 乘�
 - 当前不是线程安全实现；每条流应使用独立上下文并由单一线程/任务调用。
 - `fec_encoder_flush` 丢弃未完成编码块的 repair 状态，但已经回调出去的系统型 SOURCE 不会撤回。
 - 解码端若把 `block_timeout_ms` 配置为 0，流结束时必须调用 `fec_decoder_flush`，否则最后的未完成块不会产生不可恢复事件和统计。
-- 不支持 callback 背压；RF 发送队列必须按 `1 + L` 峰值准备容量。
+- 不支持 callback 背压；RF 发送队列必须按 `1 + repair_count` 峰值准备容量。
 - create 阶段仍依赖可用堆；完全无堆平台后续应增加 caller-provided workspace/in-place API。
 - FEC 负责包擦除恢复，不替代 PHY 纠错、重传、时钟同步或业务层排序。

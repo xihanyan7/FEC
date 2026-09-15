@@ -63,6 +63,22 @@ bool normalize_config(const fec_config_t &input, fec_config_t &output) {
         static_cast<uint32_t>(input.max_packet_size) + 6u;
 }
 
+void fill_profile_info(const ProfileParams &params,
+                       fec_profile_info_t &out_info) {
+    std::memset(&out_info, 0, sizeof(out_info));
+    out_info.algorithm = params.algorithm;
+    out_info.source_count = params.source_count;
+    out_info.repair_count = params.repair_count;
+    out_info.total_count = params.total_count;
+    if (params.algorithm == FEC_ALGORITHM_XOR_INTERLEAVED) {
+        out_info.interleave_rows = params.interleave_rows;
+        out_info.interleave_columns = params.interleave_columns;
+    }
+    out_info.xor_group_size = params.algorithm == FEC_ALGORITHM_XOR ?
+        params.source_count : 0u;
+    out_info.redundancy_ppm = fec::internal::profile_redundancy_ppm(params);
+}
+
 } // namespace
 
 extern "C" {
@@ -78,7 +94,8 @@ int fec_encoder_create(const fec_config_t *config,
     *out_encoder = NULL;
 
     ProfileParams params;
-    if (!fec::internal::get_profile_params(config->profile, params)) {
+    if (!fec::internal::get_profile_params(
+            config->profile, config->xor_group_size, params)) {
         return FEC_ERR_PROFILE;
     }
     fec_config_t normalized;
@@ -136,7 +153,8 @@ int fec_decoder_create(const fec_config_t *config,
 
     ProfileParams params;
     if (config->profile != FEC_PROFILE_AUTO &&
-        !fec::internal::get_profile_params(config->profile, params)) {
+        !fec::internal::get_profile_params(
+            config->profile, config->xor_group_size, params)) {
         return FEC_ERR_PROFILE;
     }
     fec_config_t normalized;
@@ -258,15 +276,21 @@ int fec_profile_get_info(fec_profile_t profile, fec_profile_info_t *out_info) {
     if (!fec::internal::get_profile_params(profile, params)) {
         return FEC_ERR_PROFILE;
     }
-    std::memset(out_info, 0, sizeof(*out_info));
-    out_info->algorithm = params.algorithm;
-    out_info->source_count = params.source_count;
-    out_info->repair_count = params.repair_count;
-    out_info->total_count = params.total_count;
-    out_info->interleave_rows = params.interleave_rows;
-    out_info->interleave_columns = params.interleave_columns;
-    out_info->redundancy_ppm =
-        fec::internal::profile_redundancy_ppm(params);
+    fill_profile_info(params, *out_info);
+    return FEC_OK;
+}
+
+int fec_config_get_profile_info(const fec_config_t *config,
+                                fec_profile_info_t *out_info) {
+    if (config == NULL || out_info == NULL) {
+        return FEC_ERR_ARGUMENT;
+    }
+    ProfileParams params;
+    if (!fec::internal::get_profile_params(
+            config->profile, config->xor_group_size, params)) {
+        return FEC_ERR_PROFILE;
+    }
+    fill_profile_info(params, *out_info);
     return FEC_OK;
 }
 

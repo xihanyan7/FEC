@@ -12,6 +12,7 @@ namespace internal {
 struct FrameFields {
     fec_profile_t profile;
     fec_frame_type_t type;
+    uint8_t xor_group_size;
     uint32_t stream_id;
     uint32_t session_epoch;
     uint32_t block_id;

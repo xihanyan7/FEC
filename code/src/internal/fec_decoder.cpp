@@ -84,9 +84,11 @@ struct Decoder::RetiredKey {
     fec_profile_t profile;
     uint32_t block_id;
     uint32_t base_seq;
+    uint8_t xor_group_size;
 
     RetiredKey()
-        : used(false), profile(FEC_PROFILE_NONE), block_id(0u), base_seq(0u) {}
+        : used(false), profile(FEC_PROFILE_NONE), block_id(0u), base_seq(0u),
+          xor_group_size(0u) {}
 };
 
 Decoder::Decoder()
@@ -135,9 +137,16 @@ int Decoder::ingest(const uint8_t *frame,
         return record_error(parse_status);
     }
 
+    if (parsed.profile != FEC_PROFILE_XOR_DX && parsed.xor_group_size != 0u) {
+        return record_error(FEC_ERR_FORMAT);
+    }
     ProfileParams params;
-    if (!get_profile_params(parsed.profile, params) ||
+    if (!get_profile_params(parsed.profile, parsed.xor_group_size, params) ||
         (config_.profile != FEC_PROFILE_AUTO && config_.profile != parsed.profile)) {
+        return record_error(FEC_ERR_PROFILE);
+    }
+    if (config_.profile == FEC_PROFILE_XOR_DX &&
+        config_.xor_group_size != parsed.xor_group_size) {
         return record_error(FEC_ERR_PROFILE);
     }
     if (parsed.payload_size > symbol_size_ ||
@@ -160,7 +169,7 @@ int Decoder::ingest(const uint8_t *frame,
 
     ++stats_.valid_frames;
     const int retired = retired_state(parsed.block_id, parsed.base_seq,
-                                      parsed.profile);
+                                      parsed.profile, parsed.xor_group_size);
     if (retired > 0) {
         ++stats_.duplicate_or_late_frames;
         return FEC_OK;
@@ -171,11 +180,13 @@ int Decoder::ingest(const uint8_t *frame,
 
     Slot *slot = find_slot(parsed.block_id);
     if (slot != nullptr &&
-        (slot->profile != parsed.profile || slot->base_seq != parsed.base_seq)) {
+        (slot->profile != parsed.profile || slot->base_seq != parsed.base_seq ||
+         slot->params.source_count != params.source_count)) {
         return record_error(FEC_ERR_FORMAT);
     }
     if (slot == nullptr) {
-        slot = create_slot(parsed.block_id, parsed.base_seq, parsed.profile, now_ms);
+        slot = create_slot(parsed.block_id, parsed.base_seq, parsed.profile,
+                           params, now_ms);
         if (slot == nullptr) {
             return FEC_ERR_BUSY;
         }
@@ -192,7 +203,7 @@ int Decoder::ingest(const uint8_t *frame,
         return FEC_OK;
     }
 
-    if (params.algorithm == FEC_ALGORITHM_XOR_INTERLEAVED) {
+    if (is_xor_algorithm(params.algorithm)) {
         try_xor_decode(*slot);
     } else if (params.algorithm == FEC_ALGORITHM_REED_SOLOMON) {
         try_rs_decode(*slot);
@@ -257,18 +268,22 @@ void Decoder::remember_retired(const Slot &slot) {
     key.profile = slot.profile;
     key.block_id = slot.block_id;
     key.base_seq = slot.base_seq;
+    key.xor_group_size = slot.profile == FEC_PROFILE_XOR_DX ?
+        slot.params.source_count : 0u;
     retired_cursor_ = (retired_cursor_ + 1u) % retired_count_;
 }
 
 int Decoder::retired_state(uint32_t block_id,
                            uint32_t base_seq,
-                           fec_profile_t profile) const {
+                           fec_profile_t profile,
+                           uint8_t xor_group_size) const {
     for (std::size_t i = 0u; i < retired_count_; ++i) {
         const RetiredKey &key = retired_[i];
         if (!key.used || key.block_id != block_id) {
             continue;
         }
-        return key.profile == profile && key.base_seq == base_seq ? 1 : -1;
+        return key.profile == profile && key.base_seq == base_seq &&
+               key.xor_group_size == xor_group_size ? 1 : -1;
     }
     return 0;
 }
@@ -296,11 +311,8 @@ Decoder::Slot *Decoder::find_slot(uint32_t block_id) {
 Decoder::Slot *Decoder::create_slot(uint32_t block_id,
                                     uint32_t base_seq,
                                     fec_profile_t profile,
+                                    const ProfileParams &params,
                                     uint32_t now_ms) {
-    ProfileParams params;
-    if (!get_profile_params(profile, params)) {
-        return nullptr;
-    }
     std::size_t slot_index = max_active_blocks_;
     for (std::size_t i = 0u; i < max_active_blocks_; ++i) {
         if (!slots_[i].used) {
@@ -343,7 +355,7 @@ bool Decoder::receive_source(Slot &slot,
     slot.source_mask |= bit;
     ++stats_.source_frames;
 
-    if (slot.params.algorithm == FEC_ALGORITHM_XOR_INTERLEAVED) {
+    if (is_xor_algorithm(slot.params.algorithm)) {
         const uint8_t column = static_cast<uint8_t>(
             index % slot.params.interleave_columns);
         uint8_t *temporary = memory +
@@ -375,7 +387,7 @@ bool Decoder::receive_repair(Slot &slot,
     }
     slot.repair_mask |= bit;
     ++stats_.repair_frames;
-    if (slot.params.algorithm == FEC_ALGORITHM_XOR_INTERLEAVED) {
+    if (is_xor_algorithm(slot.params.algorithm)) {
         std::memcpy(memory +
                         (static_cast<std::size_t>(kMaxInterleaveColumns) +
                          repair_index) * symbol_size_,

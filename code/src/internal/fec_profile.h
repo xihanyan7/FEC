@@ -19,6 +19,10 @@ struct ProfileParams {
 };
 
 bool get_profile_params(fec_profile_t profile, ProfileParams &out);
+bool get_profile_params(fec_profile_t profile,
+                        uint8_t xor_group_size,
+                        ProfileParams &out);
+bool is_xor_algorithm(fec_algorithm_t algorithm);
 uint32_t profile_redundancy_ppm(const ProfileParams &params);
 const char *profile_name(fec_profile_t profile);
 

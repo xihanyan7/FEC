@@ -23,7 +23,7 @@ int Encoder::initialize(const fec_config_t &config,
                         fec_frame_callback callback,
                         void *user) {
     ProfileParams initial;
-    if (!get_profile_params(config.profile, initial)) {
+    if (!get_profile_params(config.profile, config.xor_group_size, initial)) {
         return FEC_ERR_PROFILE;
     }
     config_ = config;
@@ -70,7 +70,7 @@ int Encoder::push(const uint8_t *data, std::size_t size) {
         return FEC_OK;
     }
 
-    if (params_.algorithm == FEC_ALGORITHM_XOR_INTERLEAVED) {
+    if (is_xor_algorithm(params_.algorithm)) {
         const uint8_t column = static_cast<uint8_t>(
             source_index % params_.interleave_columns);
         uint8_t *temporary_symbol = frame_.get() + kHeaderSize;
@@ -114,7 +114,7 @@ int Encoder::flush() {
 
 int Encoder::request_profile(fec_profile_t profile) {
     ProfileParams ignored;
-    if (!get_profile_params(profile, ignored)) {
+    if (!get_profile_params(profile, config_.xor_group_size, ignored)) {
         return FEC_ERR_PROFILE;
     }
     pending_profile_ = profile;
@@ -127,7 +127,8 @@ fec_profile_t Encoder::profile() const {
 
 bool Encoder::activate_profile(fec_profile_t profile) {
     ProfileParams next;
-    if (!get_profile_params(profile, next) || !rs_codec_.configure(next)) {
+    if (!get_profile_params(profile, config_.xor_group_size, next) ||
+        !rs_codec_.configure(next)) {
         return false;
     }
     active_profile_ = profile;
@@ -153,7 +154,7 @@ void Encoder::finish_block(uint16_t consumed_sources) {
 }
 
 int Encoder::emit_repairs() {
-    if (params_.algorithm == FEC_ALGORITHM_XOR_INTERLEAVED) {
+    if (is_xor_algorithm(params_.algorithm)) {
         for (uint8_t column = 0u;
              column < params_.interleave_columns;
              ++column) {
@@ -192,6 +193,8 @@ int Encoder::emit_frame(fec_frame_type_t type,
     FrameFields fields;
     fields.profile = active_profile_;
     fields.type = type;
+    fields.xor_group_size = active_profile_ == FEC_PROFILE_XOR_DX ?
+        config_.xor_group_size : 0u;
     fields.stream_id = config_.stream_id;
     fields.session_epoch = config_.session_epoch;
     fields.block_id = block_id_;

@@ -69,6 +69,7 @@ int FrameCodec::write(uint8_t *buffer,
     buffer[2] = kVersion;
     buffer[3] = static_cast<uint8_t>(fields.profile);
     buffer[4] = static_cast<uint8_t>(fields.type);
+    buffer[5] = fields.xor_group_size;
     put_u32(buffer + 6u, fields.stream_id);
     put_u32(buffer + 10u, fields.session_epoch);
     put_u32(buffer + 14u, fields.block_id);
@@ -110,6 +111,7 @@ int FrameCodec::parse(const uint8_t *frame,
 
     out.profile = static_cast<fec_profile_t>(frame[3]);
     out.type = static_cast<fec_frame_type_t>(frame[4]);
+    out.xor_group_size = frame[5];
     out.stream_id = get_u32(frame + 6u);
     out.session_epoch = get_u32(frame + 10u);
     out.block_id = get_u32(frame + 14u);
