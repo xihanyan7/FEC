@@ -144,11 +144,20 @@ bool invert_matrix(const uint8_t input[kMaxEncodedSymbols][kMaxEncodedSymbols],
 
 } // namespace
 
+/**
+ * @brief 构造未配置的 RS 编解码器并清零 profile 和生成矩阵。
+ */
 ReedSolomonCodec::ReedSolomonCodec() : params_(), generator_() {
     std::memset(&params_, 0, sizeof(params_));
     std::memset(generator_, 0, sizeof(generator_));
 }
 
+/**
+ * @brief 按 profile 构造系统型 RS 生成矩阵。
+ * @param params [in] 源符号数、修复符号数和算法类型。
+ * @return 参数无需 RS 时返回 true；RS 生成矩阵构造成功返回 true，
+ *         基础矩阵不可逆时返回 false。
+ */
 bool ReedSolomonCodec::configure(const ProfileParams &params) {
     params_ = params;
     std::memset(generator_, 0, sizeof(generator_));
@@ -188,6 +197,13 @@ bool ReedSolomonCodec::configure(const ProfileParams &params) {
     return true;
 }
 
+/**
+ * @brief 使用生成矩阵指定行计算一个 RS 修复符号。
+ * @param encoded_index [in] 待计算修复符号的编码索引。
+ * @param source_symbols [in] 连续存放的全部源符号。
+ * @param symbol_size [in] 单个符号长度。
+ * @param repair [out] 接收计算出的修复符号。
+ */
 void ReedSolomonCodec::encode_repair(uint8_t encoded_index,
                                      const uint8_t *source_symbols,
                                      std::size_t symbol_size,
@@ -203,6 +219,13 @@ void ReedSolomonCodec::encode_repair(uint8_t encoded_index,
     }
 }
 
+/**
+ * @brief 从可用编码符号中选择足量方程并求出 GF(256) 解码逆矩阵。
+ * @param available_mask [in] 可用编码符号位图。
+ * @param selected [out] 接收被选中的编码符号索引。
+ * @param decode_inverse [out] 接收解码所需的逆矩阵。
+ * @return 符号足够且方程矩阵可逆时返回 true，否则返回 false。
+ */
 bool ReedSolomonCodec::prepare_recovery(
     uint32_t available_mask,
     uint8_t selected[kMaxEncodedSymbols],
@@ -231,6 +254,15 @@ bool ReedSolomonCodec::prepare_recovery(
     return invert_matrix(equations, decode_inverse, params_.source_count);
 }
 
+/**
+ * @brief 使用解码逆矩阵恢复指定的原始源符号。
+ * @param source_index [in] 待恢复源符号索引。
+ * @param selected [in] 参与解码的编码符号索引。
+ * @param decode_inverse [in] prepare_recovery 计算出的逆矩阵。
+ * @param encoded_symbols [in] 按编码索引存放的符号工作区。
+ * @param symbol_size [in] 单个符号长度。
+ * @param output [out] 接收恢复出的完整源符号。
+ */
 void ReedSolomonCodec::recover_source(
     uint8_t source_index,
     const uint8_t selected[kMaxEncodedSymbols],

@@ -113,6 +113,9 @@ struct Decoder::RetiredKey {
           xor_group_size(0u) {}
 };
 
+/**
+ * @brief 构造空解码器并清零回调、工作区尺寸和统计状态。
+ */
 Decoder::Decoder()
     : config_(), packet_callback_(nullptr), event_callback_(nullptr), user_(nullptr),
       max_active_blocks_(0u), symbol_size_(0u), slot_stride_(0u), slots_(),
@@ -121,8 +124,19 @@ Decoder::Decoder()
     std::memset(&stats_, 0, sizeof(stats_));
 }
 
+/**
+ * @brief 析构解码器，由智能指针自动释放槽位、符号区和退休块记录。
+ */
 Decoder::~Decoder() {}
 
+/**
+ * @brief 初始化配置、输出回调以及固定大小的活动块工作区。
+ * @param config [in] 已规范化的解码器配置。
+ * @param packet_callback [in] 原始包同步输出回调。
+ * @param event_callback [in] 不可恢复事件回调，可为空。
+ * @param user [in,out] 原样传递给两个回调的用户上下文。
+ * @return 成功返回 FEC_OK，分配失败返回 FEC_ERR_NOMEM。
+ */
 int Decoder::initialize(const fec_config_t &config,
                         fec_packet_callback packet_callback,
                         fec_event_callback event_callback,
@@ -150,6 +164,13 @@ int Decoder::initialize(const fec_config_t &config,
     return FEC_OK;
 }
 
+/**
+ * @brief 解析并接收一个 FEC 帧，完成匹配、去重、输出和恢复尝试。
+ * @param frame [in] 完整 FEC 帧首地址。
+ * @param frame_size [in] 输入帧长度。
+ * @param now_ms [in] 当前单调时钟毫秒值，用于块超时和淘汰。
+ * @return 成功返回 FEC_OK，否则返回格式、CRC、profile 或容量错误码。
+ */
 int Decoder::ingest(const uint8_t *frame,
                     std::size_t frame_size,
                     uint32_t now_ms) {
@@ -237,6 +258,11 @@ int Decoder::ingest(const uint8_t *frame,
     return FEC_OK;
 }
 
+/**
+ * @brief 淘汰从首帧起已经超过配置时限的所有活动块。
+ * @param now_ms [in] 与 ingest 相同时间基准的当前毫秒值。
+ * @return 始终返回 FEC_OK。
+ */
 int Decoder::expire(uint32_t now_ms) {
     if (config_.block_timeout_ms == 0u) {
         return FEC_OK;
@@ -250,6 +276,10 @@ int Decoder::expire(uint32_t now_ms) {
     return FEC_OK;
 }
 
+/**
+ * @brief 关闭全部活动块并对未恢复源包触发事件通知。
+ * @return 始终返回 FEC_OK。
+ */
 int Decoder::flush() {
     for (std::size_t i = 0u; i < max_active_blocks_; ++i) {
         if (slots_[i].used) {
@@ -259,6 +289,10 @@ int Decoder::flush() {
     return FEC_OK;
 }
 
+/**
+ * @brief 清空活动块、工作区和迟到包记录，但不清空累计统计。
+ * @return 始终返回 FEC_OK。
+ */
 int Decoder::reset() {
     for (std::size_t i = 0u; i < max_active_blocks_; ++i) {
         slots_[i].clear();
@@ -272,6 +306,12 @@ int Decoder::reset() {
     return FEC_OK;
 }
 
+/**
+ * @brief 输出当前解码统计快照，并可选择在读取后清零统计。
+ * @param out_stats [out] 接收统计快照。
+ * @param reset_after_read [in] 为 true 时复制完成后清零内部统计。
+ * @return 始终返回 FEC_OK。
+ */
 int Decoder::get_stats(fec_decoder_stats_t &out_stats, bool reset_after_read) {
     out_stats = stats_;
     if (reset_after_read) {
@@ -280,10 +320,19 @@ int Decoder::get_stats(fec_decoder_stats_t &out_stats, bool reset_after_read) {
     return FEC_OK;
 }
 
+/**
+ * @brief 取得指定槽位的预分配符号工作区首地址。
+ * @param slot_index [in] 活动块槽位索引。
+ * @return 对应工作区首地址。
+ */
 uint8_t *Decoder::slot_memory(std::size_t slot_index) {
     return storage_.get() + slot_index * slot_stride_;
 }
 
+/**
+ * @brief 将刚退休块的识别键写入环形记录，用于抑制迟到帧。
+ * @param slot [in] 刚完成或被淘汰的块槽位。
+ */
 void Decoder::remember_retired(const Slot &slot) {
     RetiredKey &key = retired_[retired_cursor_];
     key.used = true;
@@ -295,6 +344,14 @@ void Decoder::remember_retired(const Slot &slot) {
     retired_cursor_ = (retired_cursor_ + 1u) % retired_count_;
 }
 
+/**
+ * @brief 查询帧标识是否匹配已退休块，并识别块号冲突。
+ * @param block_id [in] 帧块编号。
+ * @param base_seq [in] 块首源序号。
+ * @param profile [in] 帧 profile。
+ * @param xor_group_size [in] XOR_DX 的动态分组大小。
+ * @return 1 表示同一已退休块，-1 表示同块号但元数据冲突，0 表示未找到。
+ */
 int Decoder::retired_state(uint32_t block_id,
                            uint32_t base_seq,
                            fec_profile_t profile,
@@ -310,6 +367,11 @@ int Decoder::retired_state(uint32_t block_id,
     return 0;
 }
 
+/**
+ * @brief 将输入错误累计到对应统计项并返回原错误码。
+ * @param status [in] 待记录的错误状态。
+ * @return 与 status 相同的错误码。
+ */
 int Decoder::record_error(int status) {
     if (status == FEC_ERR_CRC) {
         ++stats_.crc_errors;
@@ -321,6 +383,11 @@ int Decoder::record_error(int status) {
     return status;
 }
 
+/**
+ * @brief 按 block_id 查找当前活动块槽位。
+ * @param block_id [in] 目标块编号。
+ * @return 找到时返回槽位指针，否则返回空指针。
+ */
 Decoder::Slot *Decoder::find_slot(uint32_t block_id) {
     for (std::size_t i = 0u; i < max_active_blocks_; ++i) {
         if (slots_[i].used && slots_[i].block_id == block_id) {
@@ -330,6 +397,15 @@ Decoder::Slot *Decoder::find_slot(uint32_t block_id) {
     return nullptr;
 }
 
+/**
+ * @brief 创建并初始化活动块；槽位已满时淘汰最早看到的块。
+ * @param block_id [in] 新块编号。
+ * @param base_seq [in] 新块首源序号。
+ * @param profile [in] 新块 profile。
+ * @param params [in] 新块规范化算法参数。
+ * @param now_ms [in] 新块首帧到达时间。
+ * @return 成功返回新槽位指针，算法初始化失败返回空指针。
+ */
 Decoder::Slot *Decoder::create_slot(uint32_t block_id,
                                     uint32_t base_seq,
                                     fec_profile_t profile,
@@ -363,6 +439,16 @@ Decoder::Slot *Decoder::create_slot(uint32_t block_id,
     return &slot;
 }
 
+/**
+ * @brief 保存首次到达的 SOURCE，更新算法工作区并立即交付原始包。
+ * @param slot [in,out] SOURCE 所属活动块。
+ * @param memory [in,out] 当前槽位的符号工作区。
+ * @param index [in] 源符号块内索引。
+ * @param payload [in] 原始包数据。
+ * @param payload_size [in] 原始包长度。
+ * @param payload_crc [in] 原始包 CRC32。
+ * @return 首次成功接收返回 true，重复包返回 false。
+ */
 bool Decoder::receive_source(Slot &slot,
                              uint8_t *memory,
                              uint16_t index,
@@ -396,6 +482,14 @@ bool Decoder::receive_source(Slot &slot,
     return true;
 }
 
+/**
+ * @brief 保存首次到达的 REPAIR 符号并更新修复位图。
+ * @param slot [in,out] REPAIR 所属活动块。
+ * @param memory [out] 当前槽位的符号工作区。
+ * @param index [in] 修复符号的编码索引。
+ * @param payload [in] 完整修复符号数据。
+ * @return 首次成功接收返回 true，重复包返回 false。
+ */
 bool Decoder::receive_repair(Slot &slot,
                              uint8_t *memory,
                              uint16_t index,
@@ -423,6 +517,13 @@ bool Decoder::receive_repair(Slot &slot,
     return true;
 }
 
+/**
+ * @brief 校验恢复符号并通过回调交付其中的原始包。
+ * @param slot [in,out] 恢复包所属活动块。
+ * @param source_index [in] 被恢复源符号索引。
+ * @param symbol [in] 恢复出的完整保护符号。
+ * @return 成功返回 FEC_OK，长度或 CRC 校验失败返回 FEC_ERR_CRC。
+ */
 int Decoder::emit_recovered(Slot &slot,
                             uint8_t source_index,
                             const uint8_t *symbol) {
@@ -443,6 +544,10 @@ int Decoder::emit_recovered(Slot &slot,
     return FEC_OK;
 }
 
+/**
+ * @brief 扫描所有 XOR 列，并恢复其中恰好缺少一个源符号的列。
+ * @param slot [in,out] 待尝试恢复的 XOR 活动块。
+ */
 void Decoder::try_xor_decode(Slot &slot) {
     const std::size_t slot_index = static_cast<std::size_t>(&slot - slots_.get());
     uint8_t *memory = slot_memory(slot_index);
@@ -481,6 +586,10 @@ void Decoder::try_xor_decode(Slot &slot) {
     }
 }
 
+/**
+ * @brief 在可用编码符号达到源符号数时执行 RS 矩阵恢复。
+ * @param slot [in,out] 待尝试恢复的 RS 活动块。
+ */
 void Decoder::try_rs_decode(Slot &slot) {
     const uint32_t available = slot.source_mask |
         (slot.repair_mask << slot.params.source_count);
@@ -507,6 +616,10 @@ void Decoder::try_rs_decode(Slot &slot) {
     }
 }
 
+/**
+ * @brief 汇总块的原始缺包突发长度及 XOR 同列多丢包次数。
+ * @param slot [in] 待统计的活动块。
+ */
 void Decoder::update_loss_shape_stats(const Slot &slot) {
     uint32_t current_burst = 0u;
     for (uint8_t index = 0u; index < slot.params.source_count; ++index) {
@@ -539,6 +652,11 @@ void Decoder::update_loss_shape_stats(const Slot &slot) {
     }
 }
 
+/**
+ * @brief 结算块统计、通知不可恢复包、记录退休键并释放槽位。
+ * @param slot_index [in] 待退休的活动槽位索引。
+ * @param reason [in] 正常完成、超时或容量淘汰原因。
+ */
 void Decoder::retire_slot(std::size_t slot_index, RetireReason reason) {
     Slot &slot = slots_[slot_index];
     if (!slot.used) {

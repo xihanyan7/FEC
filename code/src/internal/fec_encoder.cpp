@@ -10,6 +10,9 @@
 namespace fec {
 namespace internal {
 
+/**
+ * @brief 构造空编码器并初始化所有状态；使用前必须调用 initialize。
+ */
 Encoder::Encoder()
     : config_(), params_(), active_profile_(FEC_PROFILE_NONE),
       pending_profile_(FEC_PROFILE_NONE), callback_(nullptr), user_(nullptr),
@@ -19,6 +22,13 @@ Encoder::Encoder()
     std::memset(&params_, 0, sizeof(params_));
 }
 
+/**
+ * @brief 初始化编码配置、输出回调以及所有预分配工作区。
+ * @param config [in] 已规范化的编码器配置。
+ * @param callback [in] SOURCE/REPAIR 帧同步输出回调。
+ * @param user [in,out] 原样传递给 callback 的用户上下文。
+ * @return 成功返回 FEC_OK，否则返回 profile 或内存错误码。
+ */
 int Encoder::initialize(const fec_config_t &config,
                         fec_frame_callback callback,
                         void *user) {
@@ -44,6 +54,12 @@ int Encoder::initialize(const fec_config_t &config,
     return activate_profile(config.profile) ? FEC_OK : FEC_ERR_PROFILE;
 }
 
+/**
+ * @brief 输入一个原始包，输出 SOURCE 帧，并在源块完成时输出 REPAIR 帧。
+ * @param data [in] 原始包数据；size 非零时不得为空。
+ * @param size [in] 原始包长度，不得超过 max_packet_size。
+ * @return 成功返回 FEC_OK，否则返回参数、长度、profile 或帧编码错误码。
+ */
 int Encoder::push(const uint8_t *data, std::size_t size) {
     if (data == nullptr && size != 0u) {
         return FEC_ERR_ARGUMENT;
@@ -104,6 +120,10 @@ int Encoder::push(const uint8_t *data, std::size_t size) {
     return FEC_OK;
 }
 
+/**
+ * @brief 结束当前未完成块；不完整块不生成 REPAIR，后续输入从新块开始。
+ * @return 始终返回 FEC_OK。
+ */
 int Encoder::flush() {
     if (source_count_ != 0u) {
         /* 不完整块不生成 repair，防止残留符号跨块参与运算。 */
@@ -112,6 +132,11 @@ int Encoder::flush() {
     return FEC_OK;
 }
 
+/**
+ * @brief 请求切换编码 profile；存在未完成块时延迟到下一块生效。
+ * @param profile [in] 目标固定 profile。
+ * @return profile 有效返回 FEC_OK，否则返回 FEC_ERR_PROFILE。
+ */
 int Encoder::request_profile(fec_profile_t profile) {
     ProfileParams ignored;
     if (!get_profile_params(profile, config_.xor_group_size, ignored)) {
@@ -121,10 +146,19 @@ int Encoder::request_profile(fec_profile_t profile) {
     return FEC_OK;
 }
 
+/**
+ * @brief 查询当前实际使用的编码 profile。
+ * @return 当前活动 profile。
+ */
 fec_profile_t Encoder::profile() const {
     return active_profile_;
 }
 
+/**
+ * @brief 解析并启用指定 profile，同时配置 RS 模块并清空块工作区。
+ * @param profile [in] 待启用的固定 profile。
+ * @return profile 和算法配置有效时返回 true，否则返回 false。
+ */
 bool Encoder::activate_profile(fec_profile_t profile) {
     ProfileParams next;
     if (!get_profile_params(profile, config_.xor_group_size, next) ||
@@ -137,6 +171,9 @@ bool Encoder::activate_profile(fec_profile_t profile) {
     return true;
 }
 
+/**
+ * @brief 清零 XOR 累加器和 RS 源符号工作区。
+ */
 void Encoder::clear_workspaces() {
     std::memset(xor_accumulators_.get(), 0,
                 static_cast<std::size_t>(kMaxInterleaveColumns) *
@@ -146,6 +183,10 @@ void Encoder::clear_workspaces() {
                     config_.symbol_size);
 }
 
+/**
+ * @brief 完成当前块，推进源序号与块编号并清空工作区。
+ * @param consumed_sources [in] 当前块实际消费的源包数量。
+ */
 void Encoder::finish_block(uint16_t consumed_sources) {
     base_seq_ += consumed_sources;
     source_count_ = 0u;
@@ -153,6 +194,10 @@ void Encoder::finish_block(uint16_t consumed_sources) {
     clear_workspaces();
 }
 
+/**
+ * @brief 根据当前算法生成并同步输出当前块的全部 REPAIR 帧。
+ * @return 全部输出成功返回 FEC_OK，否则返回首个帧编码错误码。
+ */
 int Encoder::emit_repairs() {
     if (is_xor_algorithm(params_.algorithm)) {
         for (uint8_t column = 0u;
@@ -186,6 +231,14 @@ int Encoder::emit_repairs() {
     return FEC_OK;
 }
 
+/**
+ * @brief 序列化并通过回调同步输出一个 FEC 帧。
+ * @param type [in] SOURCE 或 REPAIR 帧类型。
+ * @param index [in] 帧在当前块内的源符号或编码符号索引。
+ * @param payload [in] 待封装的数据首地址。
+ * @param payload_size [in] 待封装数据长度。
+ * @return 成功返回 FEC_OK，否则返回 FrameCodec 的错误码。
+ */
 int Encoder::emit_frame(fec_frame_type_t type,
                         uint16_t index,
                         const uint8_t *payload,

@@ -32,6 +32,11 @@ uint32_t profile_overhead_ppm(fec_profile_t profile) {
 
 } // namespace
 
+/**
+ * @brief 校验控制器 profile 和各级阈值之间的取值关系。
+ * @param config [in] 待校验的控制器配置。
+ * @return 配置有效返回 true，否则返回 false。
+ */
 bool controller_config_valid(const fec_controller_config_t &config) {
     ProfileParams params;
     if (!get_profile_params(config.initial_profile, params)) {
@@ -49,6 +54,9 @@ bool controller_config_valid(const fec_controller_config_t &config) {
            residual <= 1000000u;
 }
 
+/**
+ * @brief 构造采用安全初始状态的自适应控制器。
+ */
 AdaptiveController::AdaptiveController()
     : config_(), current_profile_(FEC_PROFILE_NONE),
       downgrade_candidate_(FEC_PROFILE_NONE), last_change_ms_(0u),
@@ -56,12 +64,25 @@ AdaptiveController::AdaptiveController()
     std::memset(&config_, 0, sizeof(config_));
 }
 
+/**
+ * @brief 保存控制配置并将当前 profile 和降级候选重置为初始值。
+ * @param config [in] 已校验的控制器配置。
+ */
 void AdaptiveController::initialize(const fec_controller_config_t &config) {
     config_ = config;
     current_profile_ = config.initial_profile;
     downgrade_candidate_ = config.initial_profile;
 }
 
+/**
+ * @brief 聚合多设备链路指标，并按保持与防抖规则更新建议 profile。
+ * @param metrics [in] 链路指标数组；count 非零时不得为空。
+ * @param count [in] metrics 数组元素数量。
+ * @param now_ms [in] 调用方单调时钟当前毫秒值。
+ * @param profile [out] 接收本次决策后的建议 profile。
+ * @param changed [out] 接收 profile 是否在本次调用中改变。
+ * @return 成功返回 FEC_OK，指标非法返回 FEC_ERR_ARGUMENT。
+ */
 int AdaptiveController::update(const fec_link_metrics_t *metrics,
                                std::size_t count,
                                uint32_t now_ms,
@@ -139,10 +160,22 @@ int AdaptiveController::update(const fec_link_metrics_t *metrics,
     return FEC_OK;
 }
 
+/**
+ * @brief 查询当前建议的编码 profile。
+ * @return 当前 profile。
+ */
 fec_profile_t AdaptiveController::profile() const {
     return current_profile_;
 }
 
+/**
+ * @brief 根据最差丢包率、残余丢包和突发形态选择目标 profile。
+ * @param worst_loss [in] 最差原始丢包率，单位为 ppm。
+ * @param worst_residual [in] 最差 FEC 后残余丢包率，单位为 ppm。
+ * @param worst_burst [in] 最长连续丢包数。
+ * @param worst_same_column [in] XOR 同列多丢包事件数。
+ * @return 与当前链路状态匹配的目标 profile。
+ */
 fec_profile_t AdaptiveController::choose_profile(
     uint32_t worst_loss,
     uint32_t worst_residual,
@@ -178,6 +211,13 @@ fec_profile_t AdaptiveController::choose_profile(
     return FEC_PROFILE_XOR_I_D8_L4;
 }
 
+/**
+ * @brief 应用一次 profile 变化并重置保持时间和稳定窗口状态。
+ * @param desired [in] 待应用的目标 profile。
+ * @param now_ms [in] 当前单调时钟毫秒值。
+ * @param profile [out] 接收已应用的 profile。
+ * @param changed [out] 被置为 1，表示本次发生变化。
+ */
 void AdaptiveController::apply_profile(fec_profile_t desired,
                                        uint32_t now_ms,
                                        fec_profile_t &profile,

@@ -54,6 +54,12 @@ uint32_t get_u32(const uint8_t *in) {
 
 } // namespace
 
+/**
+ * @brief 计算输入字节序列的 IEEE CRC32。
+ * @param data [in] 输入数据首地址。
+ * @param size [in] 输入数据长度，单位为字节。
+ * @return 计算得到的 32 位 CRC。
+ */
 uint32_t FrameCodec::crc32(const uint8_t *data, std::size_t size) {
     /* 半字节查表只占 64 字节只读空间，适合资源受限设备。 */
     static const uint32_t table[16] = {
@@ -71,6 +77,16 @@ uint32_t FrameCodec::crc32(const uint8_t *data, std::size_t size) {
     return value ^ 0xFFFFFFFFu;
 }
 
+/**
+ * @brief 将帧字段和 payload 序列化为完整的 FEC 线格式帧。
+ * @param buffer [out] 接收帧数据的缓冲区。
+ * @param capacity [in] buffer 可写容量。
+ * @param fields [in] 待写入的帧头字段。
+ * @param payload [in] payload 数据；长度非零时不得为空。
+ * @param payload_size [in] payload 长度。
+ * @param frame_size [out] 成功时接收最终帧长度。
+ * @return 成功返回 FEC_OK，否则返回参数或长度错误码。
+ */
 int FrameCodec::write(uint8_t *buffer,
                       std::size_t capacity,
                       const FrameFields &fields,
@@ -106,6 +122,13 @@ int FrameCodec::write(uint8_t *buffer,
     return FEC_OK;
 }
 
+/**
+ * @brief 校验并解析完整 FEC 帧，输出字段及指向输入缓冲区的 payload 视图。
+ * @param frame [in] 输入帧首地址。
+ * @param frame_size [in] 输入帧长度。
+ * @param out [out] 接收解析结果。
+ * @return 成功返回 FEC_OK，否则返回参数、格式或 CRC 错误码。
+ */
 int FrameCodec::parse(const uint8_t *frame,
                       std::size_t frame_size,
                       ParsedFrame &out) {

@@ -54,6 +54,14 @@ uint32_t get_u32(const uint8_t *in) {
 
 } // namespace
 
+/**
+ * @brief 将变长原始包封装成包含长度、CRC 和零填充的定长保护符号。
+ * @param destination [out] 接收保护符号的缓冲区。
+ * @param symbol_size [in] 固定符号长度。
+ * @param packet [in] 原始包数据。
+ * @param packet_size [in] 原始包长度。
+ * @param packet_crc [in] 原始包的 CRC32。
+ */
 void SymbolCodec::make(uint8_t *destination,
                        std::size_t symbol_size,
                        const uint8_t *packet,
@@ -67,6 +75,14 @@ void SymbolCodec::make(uint8_t *destination,
     }
 }
 
+/**
+ * @brief 校验恢复符号中的包长和 CRC，并解析真实包长度。
+ * @param symbol [in] 待校验的保护符号。
+ * @param symbol_size [in] 保护符号长度。
+ * @param max_packet_size [in] 允许的最大原始包长度。
+ * @param packet_size [out] 校验成功时接收真实原始包长度。
+ * @return 长度和 CRC 均有效返回 true，否则返回 false。
+ */
 bool SymbolCodec::validate(const uint8_t *symbol,
                            std::size_t symbol_size,
                            std::size_t max_packet_size,
