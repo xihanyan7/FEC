@@ -34,6 +34,12 @@ struct fec_controller {
 
 namespace {
 
+/**
+ * @brief 将计数比值换算为 0..1000000 的百万分比，并避免乘法溢出。
+ * @param numerator [in] 比率分子。
+ * @param denominator [in] 比率分母；为零时结果为零。
+ * @return 饱和到 1000000 的百万分比。
+ */
 uint32_t rate_ppm(uint64_t numerator, uint64_t denominator) {
     if (denominator == 0u || numerator == 0u) {
         return 0u;
@@ -52,6 +58,12 @@ uint32_t rate_ppm(uint64_t numerator, uint64_t denominator) {
         1000000u, numerator / scaled_denominator));
 }
 
+/**
+ * @brief 校验包长配置并补全默认保护符号长度。
+ * @param input [in] 调用方原始配置。
+ * @param output [out] 接收规范化后的配置。
+ * @return 包长和符号长度满足封装要求时返回 true。
+ */
 bool normalize_config(const fec_config_t &input, fec_config_t &output) {
     if (input.max_packet_size == 0u || input.max_packet_size > 65529u) {
         return false;
@@ -63,6 +75,11 @@ bool normalize_config(const fec_config_t &input, fec_config_t &output) {
         static_cast<uint32_t>(input.max_packet_size) + 6u;
 }
 
+/**
+ * @brief 将内部 profile 参数转换为公开 C API 信息结构。
+ * @param params [in] 内部规范化 profile 参数。
+ * @param out_info [out] 接收公开格式的信息结构。
+ */
 void fill_profile_info(const ProfileParams &params,
                        fec_profile_info_t &out_info) {
     std::memset(&out_info, 0, sizeof(out_info));

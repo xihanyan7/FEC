@@ -11,6 +11,9 @@ struct GfTables {
     uint8_t exponent[512];
     uint8_t logarithm[256];
 
+    /**
+     * @brief 使用本原多项式 0x11D 构造 GF(256) 指数表和对数表。
+     */
     GfTables() : exponent(), logarithm() {
         uint16_t value = 1u;
         for (uint16_t i = 0u; i < 255u; ++i) {
@@ -30,6 +33,12 @@ struct GfTables {
 
 const GfTables kGfTables;
 
+/**
+ * @brief 使用查表法执行 GF(256) 乘法。
+ * @param left [in] 左操作数，即一个 GF(256) 元素。
+ * @param right [in] 右操作数，即一个 GF(256) 元素。
+ * @return 两个有限域元素的乘积。
+ */
 uint8_t multiply(uint8_t left, uint8_t right) {
     if (left == 0u || right == 0u) {
         return 0u;
@@ -39,6 +48,12 @@ uint8_t multiply(uint8_t left, uint8_t right) {
         kGfTables.logarithm[right]];
 }
 
+/**
+ * @brief 计算 GF(256) 元素的非负整数次幂。
+ * @param value [in] 有限域底数。
+ * @param exponent [in] 非负整数指数。
+ * @return value 的 exponent 次幂。
+ */
 uint8_t power(uint8_t value, unsigned exponent) {
     if (exponent == 0u) {
         return 1u;
@@ -51,11 +66,23 @@ uint8_t power(uint8_t value, unsigned exponent) {
     return kGfTables.exponent[result];
 }
 
+/**
+ * @brief 计算 GF(256) 元素的乘法逆元。
+ * @param value [in] 待求逆元素；零没有逆元。
+ * @return 非零元素的逆元；输入为零时返回零。
+ */
 uint8_t inverse(uint8_t value) {
     return value == 0u ?
         0u : kGfTables.exponent[255u - kGfTables.logarithm[value]];
 }
 
+/**
+ * @brief 通过高斯-约旦消元求 GF(256) 方阵的逆矩阵。
+ * @param input [in] 待求逆矩阵，使用左上 size×size 区域。
+ * @param output [out] 接收逆矩阵，写入左上 size×size 区域。
+ * @param size [in] 方阵阶数，不得超过 kMaxEncodedSymbols。
+ * @return 矩阵可逆时返回 true，找不到非零主元时返回 false。
+ */
 bool invert_matrix(const uint8_t input[kMaxEncodedSymbols][kMaxEncodedSymbols],
                    uint8_t output[kMaxEncodedSymbols][kMaxEncodedSymbols],
                    uint8_t size) {

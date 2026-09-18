@@ -15,11 +15,21 @@ namespace fec {
 namespace internal {
 namespace {
 
+/**
+ * @brief 生成低 bit_count 位为 1 的 32 位掩码。
+ * @param bit_count [in] 有效位数，取值范围 1..32。
+ * @return 对应的低位掩码。
+ */
 uint32_t full_mask(uint8_t bit_count) {
     return bit_count == 32u ?
         0xFFFFFFFFu : ((static_cast<uint32_t>(1u) << bit_count) - 1u);
 }
 
+/**
+ * @brief 统计 32 位整数中置位位元的数量。
+ * @param value [in] 待统计的位图。
+ * @return 值为 1 的位元数量。
+ */
 uint32_t popcount32(uint32_t value) {
     uint32_t count = 0u;
     while (value != 0u) {
@@ -43,6 +53,7 @@ struct Decoder::Slot {
     uint32_t emitted_mask;
     ReedSolomonCodec rs_codec;
 
+    /** @brief 构造未使用的活动块槽位并清零块参数。 */
     Slot()
         : used(false), profile(FEC_PROFILE_NONE), params(), block_id(0u),
           base_seq(0u), first_seen_ms(0u), source_mask(0u), repair_mask(0u),
@@ -50,6 +61,15 @@ struct Decoder::Slot {
         std::memset(&params, 0, sizeof(params));
     }
 
+    /**
+     * @brief 用首帧信息初始化槽位并配置块级 RS 编解码器。
+     * @param next_profile [in] 新块的 profile。
+     * @param next_params [in] 新块的规范化 profile 参数。
+     * @param next_block_id [in] 新块编号。
+     * @param next_base_seq [in] 新块首源序号。
+     * @param now_ms [in] 新块首帧到达时间。
+     * @return 初始化和算法配置均成功时返回 true。
+     */
     bool initialize(fec_profile_t next_profile,
                     const ProfileParams &next_params,
                     uint32_t next_block_id,
@@ -71,6 +91,7 @@ struct Decoder::Slot {
         return true;
     }
 
+    /** @brief 将槽位置为未使用并清空接收、修复和交付位图。 */
     void clear() {
         used = false;
         source_mask = 0u;
@@ -86,6 +107,7 @@ struct Decoder::RetiredKey {
     uint32_t base_seq;
     uint8_t xor_group_size;
 
+    /** @brief 构造未使用的退休块键。 */
     RetiredKey()
         : used(false), profile(FEC_PROFILE_NONE), block_id(0u), base_seq(0u),
           xor_group_size(0u) {}

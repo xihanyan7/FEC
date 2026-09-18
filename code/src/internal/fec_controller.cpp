@@ -9,10 +9,21 @@ namespace fec {
 namespace internal {
 namespace {
 
+/**
+ * @brief 读取可选阈值；配置为零时采用默认值。
+ * @param configured [in] 调用方配置值。
+ * @param fallback [in] configured 为零时使用的默认值。
+ * @return 实际生效的阈值。
+ */
 uint32_t effective_threshold(uint32_t configured, uint32_t fallback) {
     return configured == 0u ? fallback : configured;
 }
 
+/**
+ * @brief 查询固定 profile 的冗余开销百万分比。
+ * @param profile [in] 待查询的 profile。
+ * @return profile 有效时返回冗余率，无效时返回零。
+ */
 uint32_t profile_overhead_ppm(fec_profile_t profile) {
     ProfileParams params;
     return get_profile_params(profile, params) ?

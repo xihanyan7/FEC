@@ -8,11 +8,21 @@ namespace fec {
 namespace internal {
 namespace {
 
+/**
+ * @brief 按线格式小端序写入 16 位无符号整数。
+ * @param out [out] 至少可写 2 字节的目标地址。
+ * @param value [in] 待写入数值。
+ */
 void put_u16(uint8_t *out, uint16_t value) {
     out[0] = static_cast<uint8_t>(value);
     out[1] = static_cast<uint8_t>(value >> 8u);
 }
 
+/**
+ * @brief 按线格式小端序写入 32 位无符号整数。
+ * @param out [out] 至少可写 4 字节的目标地址。
+ * @param value [in] 待写入数值。
+ */
 void put_u32(uint8_t *out, uint32_t value) {
     out[0] = static_cast<uint8_t>(value);
     out[1] = static_cast<uint8_t>(value >> 8u);
@@ -20,11 +30,21 @@ void put_u32(uint8_t *out, uint32_t value) {
     out[3] = static_cast<uint8_t>(value >> 24u);
 }
 
+/**
+ * @brief 从线格式小端字节序读取 16 位无符号整数。
+ * @param in [in] 至少包含 2 字节的输入地址。
+ * @return 解码后的主机整数。
+ */
 uint16_t get_u16(const uint8_t *in) {
     return static_cast<uint16_t>(in[0]) |
            static_cast<uint16_t>(static_cast<uint16_t>(in[1]) << 8u);
 }
 
+/**
+ * @brief 从线格式小端字节序读取 32 位无符号整数。
+ * @param in [in] 至少包含 4 字节的输入地址。
+ * @return 解码后的主机整数。
+ */
 uint32_t get_u32(const uint8_t *in) {
     return static_cast<uint32_t>(in[0]) |
            (static_cast<uint32_t>(in[1]) << 8u) |
